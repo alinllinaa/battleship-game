@@ -1,100 +1,66 @@
 
 import pygame
-import time
-import os
+from board import Board
 
 CELL_SIZE = 40
 GRID_SIZE = 10
 MARGIN = 50
 
 class Game:
-    def __init__(self, screen, difficulty):
+    def __init__(self, screen):
         self.screen = screen
-        self.difficulty = difficulty
-        self.running = True
         self.font = pygame.font.SysFont(None, 36)
-        self.turn_time = 10 if difficulty == "hard" else None
-        self.placed_ships = []
-        self.max_ships = 5
-        self.placing_ships = True
-        self.attacked_cells = {}
-        self.hit_sound = pygame.mixer.Sound(os.path.join("assets", "hit.wav"))
-        self.miss_sound = pygame.mixer.Sound(os.path.join("assets", "miss.wav"))
+        self.board_p1 = Board()
+        self.board_p2 = Board()
+        self.current_player = 1
+        self.phase = "setup"
+        self.message = "Player 1: Place your ships"
 
     def run(self):
         clock = pygame.time.Clock()
-        start_time = time.time()
+        running = True
 
-        while self.running:
+        while running:
             self.screen.fill((0, 0, 50))
-            mouse_clicked = False
-            mouse_pos = None
-
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    self.running = False
+                    running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    mouse_clicked = True
-                    mouse_pos = event.pos
+                    x, y = event.pos
+                    grid_x = (x - MARGIN) // CELL_SIZE
+                    grid_y = (y - MARGIN) // CELL_SIZE
+                    if 0 <= grid_x < GRID_SIZE and 0 <= grid_y < GRID_SIZE:
+                        self.handle_click(grid_x, grid_y)
 
-            # Draw grid
-            for y in range(GRID_SIZE):
-                for x in range(GRID_SIZE):
-                    rect = pygame.Rect(MARGIN + x*CELL_SIZE, MARGIN + y*CELL_SIZE, CELL_SIZE-2, CELL_SIZE-2)
-                    color = (0, 100, 200)
-                    if (x, y) in self.placed_ships:
-                        color = (0, 255, 0)
-                    if (x, y) in self.attacked_cells:
-                        color = (255, 0, 0) if self.attacked_cells[(x, y)] else (100, 100, 100)
-                    pygame.draw.rect(self.screen, color, rect)
-
-            # Ship placement
-            if self.placing_ships and mouse_clicked:
-                grid_x = (mouse_pos[0] - MARGIN) // CELL_SIZE
-                grid_y = (mouse_pos[1] - MARGIN) // CELL_SIZE
-                if 0 <= grid_x < GRID_SIZE and 0 <= grid_y < GRID_SIZE:
-                    if len(self.placed_ships) < self.max_ships and (grid_x, grid_y) not in self.placed_ships:
-                        self.placed_ships.append((grid_x, grid_y))
-                    if len(self.placed_ships) == self.max_ships:
-                        self.placing_ships = False
-                        print("Ships placed:", self.placed_ships)
-
-            # Attack phase
-            elif not self.placing_ships and mouse_clicked:
-                grid_x = (mouse_pos[0] - MARGIN) // CELL_SIZE
-                grid_y = (mouse_pos[1] - MARGIN) // CELL_SIZE
-                if 0 <= grid_x < GRID_SIZE and 0 <= grid_y < GRID_SIZE:
-                    if (grid_x, grid_y) not in self.attacked_cells:
-                        hit = (grid_x, grid_y) in self.placed_ships
-                        self.attacked_cells[(grid_x, grid_y)] = hit
-                        if hit:
-                            self.hit_sound.play()
-                        else:
-                            self.miss_sound.play()
-
-            # Timer
-            if self.difficulty == "hard" and not self.placing_ships:
-                elapsed = int(time.time() - start_time)
-                remaining = max(0, self.turn_time - elapsed)
-                timer_text = self.font.render(f"Time left: {remaining}", True, (255, 255, 255))
-                self.screen.blit(timer_text, (400, 10))
-                if remaining <= 0:
-                    print("Turn over!")
-                    start_time = time.time()
-
-            # Instructions
-            if self.placing_ships:
-                text = self.font.render(f"Place your ships ({len(self.placed_ships)}/{self.max_ships})", True, (255, 255, 0))
-            else:
-                text = self.font.render("Click to attack!", True, (0, 255, 255))
-            self.screen.blit(text, (50, 10))
-
-            # Check win
-            if not self.placing_ships:
-                all_sunk = all(cell in self.attacked_cells and self.attacked_cells[cell] for cell in self.placed_ships)
-                if all_sunk:
-                    win_text = self.font.render("All ships sunk! You win!", True, (255, 255, 0))
-                    self.screen.blit(win_text, (150, 550))
-
+            self.draw_board()
             pygame.display.flip()
             clock.tick(30)
+
+    def handle_click(self, x, y):
+        if self.phase == "setup":
+            if self.current_player == 1:
+                self.board_p1.place_ship(x, y)
+                if self.board_p1.all_ships_placed():
+                    self.current_player = 2
+                    self.message = "Player 2: Place your ships"
+            elif self.current_player == 2:
+                self.board_p2.place_ship(x, y)
+                if self.board_p2.all_ships_placed():
+                    self.phase = "battle"
+                    self.current_player = 1
+                    self.message = "Player 1: Your turn"
+        elif self.phase == "battle":
+            target_board = self.board_p2 if self.current_player == 1 else self.board_p1
+            target_board.attack(x, y)
+            self.current_player = 2 if self.current_player == 1 else 1
+            self.message = f"Player {self.current_player}: Your turn"
+
+    def draw_board(self):
+        self.screen.blit(self.font.render(self.message, True, (255, 255, 255)), (50, 10))
+        offset_x = MARGIN
+        offset_y = MARGIN
+
+        for y in range(GRID_SIZE):
+            for x in range(GRID_SIZE):
+                rect = pygame.Rect(offset_x + x * CELL_SIZE, offset_y + y * CELL_SIZE, CELL_SIZE - 2, CELL_SIZE - 2)
+                pygame.draw.rect(self.screen, (0, 100, 200), rect, 1)
